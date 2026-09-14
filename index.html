@@ -220,28 +220,29 @@
             let email = urlParams.get('email') || '';
             let phone = urlParams.get('phone_number') || '';
             let campaign = urlParams.get('campaign') || '';
+            let liffReturn = urlParams.get('liff_return') || '';
 
-            if ((!r && !t) || !campaign) {
-                try {
-                    const liffState = urlParams.get('liff.state') || '';
-                    if (liffState) {
-                        let decoded = liffState;
-                        for (let i = 0; i < 3; i++) {
-                            try { decoded = decodeURIComponent(decoded); } catch(e) { break; }
-                            if (decoded.includes('r=') || decoded.includes('t=')) break;
-                        }
-                        const stateParams = new URLSearchParams(
-                            decoded.startsWith('?') ? decoded.slice(1) : decoded
-                        );
-                        t = stateParams.get('t') || t;
-                        r = stateParams.get('r') || r;
-                        firstName = stateParams.get('first_name') || firstName;
-                        email = stateParams.get('email') || email;
-                        phone = stateParams.get('phone_number') || phone;
-                        campaign = stateParams.get('campaign') || campaign;
-                    }
-                } catch(e) {}
-            }
+            // LINE 會將 redirectUri 的查詢字串放入 liff.state；它可能是相對 URL、
+            // 也可能經過多層編碼，因此一律以 URL 方式還原。
+            try {
+                let liffState = urlParams.get('liff.state') || '';
+                for (let i = 0; i < 3 && liffState.includes('%'); i++) {
+                    const decoded = decodeURIComponent(liffState);
+                    if (decoded === liffState) break;
+                    liffState = decoded;
+                }
+                if (liffState) {
+                    const stateUrl = new URL(liffState, window.location.origin);
+                    const stateParams = stateUrl.searchParams;
+                    t = stateParams.get('t') || t;
+                    r = stateParams.get('r') || r;
+                    firstName = stateParams.get('first_name') || firstName;
+                    email = stateParams.get('email') || email;
+                    phone = stateParams.get('phone_number') || phone;
+                    campaign = stateParams.get('campaign') || campaign;
+                    liffReturn = stateParams.get('liff_return') || liffReturn;
+                }
+            } catch(e) {}
 
             if ((!r && !t) || !campaign) {
                 try {
@@ -258,7 +259,7 @@
                 } catch(e) {}
             }
 
-            return { t, r, firstName, email, phone, campaign };
+            return { t, r, firstName, email, phone, campaign, liffReturn };
         }
 
         function getCampaignConfig(campaign) {
@@ -376,6 +377,7 @@
                 if (params.email) cleanParams.set('email', params.email);
                 if (params.phone) cleanParams.set('phone_number', params.phone);
                 if (params.campaign) cleanParams.set('campaign', params.campaign);
+                cleanParams.set('liff_return', '1');
 
                 // 用 hash 當作「剛從 LINE login 跳回來」的標記
                 // hash 跟著 URL 一起 redirect,跨瀏覽器(IG → Safari)也保留
@@ -420,25 +422,8 @@
                     }
                 }
 
-                // ── 講座時段判斷 ──
-                const earlyParams = getParams();
-                if (!getCampaignConfig(earlyParams.campaign)) {
-                    showUnsupportedCampaign();
-                    return;
-                }
-                const timeStatus = checkWebinarTime(earlyParams.t);
-
-                if (timeStatus === 'during') {
-                    showRedirectingAndGo(buildWebinarUrl(earlyParams));
-                    return;
-                }
-
-                if (timeStatus === 'ended') {
-                    showEnded(earlyParams);
-                    return;
-                }
-
                 // ── LIFF init(所有外部瀏覽器都跑) ──
+                // 完成初始化後才處理 liff.state，避免登入回跳時遺失活動參數。
                 await liff.init({ liffId: MyLiffId });
 
                 const params = getParams();
@@ -447,6 +432,20 @@
                     showUnsupportedCampaign();
                     return;
                 }
+
+                // ── 講座時段判斷 ──
+                const timeStatus = checkWebinarTime(params.t);
+
+                if (timeStatus === 'during') {
+                    showRedirectingAndGo(buildWebinarUrl(params));
+                    return;
+                }
+
+                if (timeStatus === 'ended') {
+                    showEnded(params);
+                    return;
+                }
+
                 const isInLineApp = liff.isInClient();
 
                 // ╔══════════ 情境 B:在 LINE App 內報名 ══════════╗
@@ -483,9 +482,8 @@
 
                 // ╔══════════ 情境 A:外部瀏覽器(包含 IG/FB/Safari/Chrome) ══════════╗
 
-                // 用 hash 判斷是否「剛從 LIFF login 跳回來」
-                // hash 跟著 redirect 走,跨瀏覽器(IG → Safari 接力)也保留
-                const justLoggedIn = window.location.hash === '#liff_done';
+                // redirectUri 的 liff_return 會隨 liff.state 回傳；hash 保留供舊連結相容。
+                const justLoggedIn = params.liffReturn === '1' || window.location.hash === '#liff_done';
 
                 if (liff.isLoggedIn() && justLoggedIn) {
                     // 真的剛從 LINE login 回來,觸發 Step2 後跳加好友
