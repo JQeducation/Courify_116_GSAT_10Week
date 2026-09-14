@@ -167,18 +167,34 @@
         <div class="big-icon">📅</div>
         <p class="ended-title">講座已結束</p>
         <p>此場次已經結束，<br>歡迎報名其他場次</p>
-        <a href="https://webinar.archiestudio.co/webinar/registration/69dd03914bbdde408778504c" class="btn btn-primary">
+        <a id="registration-btn" href="#" class="btn btn-primary">
             🔄 報名其他場次
         </a>
     </div>
 
+    <!-- 活動識別資料缺失 -->
+    <div id="unsupported-campaign" class="container hidden">
+        <div class="big-icon">📋</div>
+        <p class="ended-title">無法確認報名活動</p>
+        <p>此報名連結缺少活動資訊，<br>請回到原本的報名頁重新操作。</p>
+    </div>
+
     <script>
-        // ── 設定區(學測國文版) ──
-        const MyLiffId = '2009771736-ny3hhIdv';
-        const MakeWebhookUrl = 'https://hook.us2.make.com/yqqnrtma2o1gndvx8w75ek2617mcvbvi';
-        const WebinarBaseUrl = 'https://webinar.archiestudio.co/webinar/thankyou/69dd03914bbdde408778504c/';
+        // ── 共用配對頁設定 ──
+        const MyLiffId = '2009771736-osZcmYWw';
+        const Campaigns = Object.freeze({
+            gsat_chinese_10week: Object.freeze({
+                makeWebhookUrl: 'https://hook.us2.make.com/2swjk1lekxl57vjwyan9e5l7q7dhz315',
+                webinarBaseUrl: 'https://webinar.archiestudio.co/webinar/thankyou/6aa646991e2459844927ec05/',
+                registrationUrl: 'https://webinar.archiestudio.co/webinar/registration/6aa646991e2459844927ec05'
+            }),
+            gsat_english_10week: Object.freeze({
+                makeWebhookUrl: 'https://hook.us2.make.com/1a445nto6zbrk4tux2xl8kwdfewpr5w1',
+                webinarBaseUrl: 'https://webinar.archiestudio.co/webinar/thankyou/6aa3d1acde9d19c677d6ab19/',
+                registrationUrl: 'https://webinar.archiestudio.co/webinar/registration/6aa3d1acde9d19c677d6ab19'
+            })
+        });
         const AddFriendUrl = 'https://line.me/R/ti/p/%40704rcmqj';
-        const RegistrationUrl = 'https://webinar.archiestudio.co/webinar/registration/69dd03914bbdde408778504c';
 
         // ── 講座時間設定 ──
         const WebinarDurationMinutes = 68;
@@ -203,8 +219,9 @@
             let firstName = urlParams.get('first_name') || '';
             let email = urlParams.get('email') || '';
             let phone = urlParams.get('phone_number') || '';
+            let campaign = urlParams.get('campaign') || '';
 
-            if (!r && !t) {
+            if ((!r && !t) || !campaign) {
                 try {
                     const liffState = urlParams.get('liff.state') || '';
                     if (liffState) {
@@ -216,40 +233,49 @@
                         const stateParams = new URLSearchParams(
                             decoded.startsWith('?') ? decoded.slice(1) : decoded
                         );
-                        t = stateParams.get('t') || '';
-                        r = stateParams.get('r') || '';
-                        firstName = stateParams.get('first_name') || '';
-                        email = stateParams.get('email') || '';
-                        phone = stateParams.get('phone_number') || '';
+                        t = stateParams.get('t') || t;
+                        r = stateParams.get('r') || r;
+                        firstName = stateParams.get('first_name') || firstName;
+                        email = stateParams.get('email') || email;
+                        phone = stateParams.get('phone_number') || phone;
+                        campaign = stateParams.get('campaign') || campaign;
                     }
                 } catch(e) {}
             }
 
-            if (!r && !t) {
+            if ((!r && !t) || !campaign) {
                 try {
                     const stored = sessionStorage.getItem('webinar_params');
                     if (stored) {
                         const p = JSON.parse(stored);
-                        t = p.t || '';
-                        r = p.r || '';
-                        firstName = p.first_name || '';
-                        email = p.email || '';
-                        phone = p.phone_number || '';
+                        t = p.t || t;
+                        r = p.r || r;
+                        firstName = p.first_name || firstName;
+                        email = p.email || email;
+                        phone = p.phone_number || phone;
+                        campaign = p.campaign || campaign;
                     }
                 } catch(e) {}
             }
 
-            return { t, r, firstName, email, phone };
+            return { t, r, firstName, email, phone, campaign };
+        }
+
+        function getCampaignConfig(campaign) {
+            return Campaigns[campaign] || null;
         }
 
         function buildWebinarUrl(params) {
+            const campaignConfig = getCampaignConfig(params.campaign);
+            if (!campaignConfig) return '#';
+
             const p = new URLSearchParams();
             if (params.t) p.set('t', params.t);
             if (params.r) p.set('r', params.r);
             if (params.firstName) p.set('first_name', params.firstName);
             if (params.email) p.set('email', params.email);
             if (params.phone) p.set('phone_number', params.phone);
-            return WebinarBaseUrl + '?' + p.toString();
+            return campaignConfig.webinarBaseUrl + '?' + p.toString();
         }
 
         function checkWebinarTime(tParam) {
@@ -269,14 +295,14 @@
             return 'ended';
         }
 
-        async function triggerWebhook(payload, storageKey) {
+        async function triggerWebhook(makeWebhookUrl, payload, storageKey) {
             if (storageKey && localStorage.getItem(storageKey)) {
                 console.log('Webhook already sent, skipping.');
                 return true;
             }
 
             try {
-                const response = await fetch(MakeWebhookUrl, {
+                const response = await fetch(makeWebhookUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload),
@@ -308,15 +334,22 @@
             }, RedirectDelayMs);
         }
 
-        function showEnded() {
+        function showEnded(params) {
+            const campaignConfig = getCampaignConfig(params.campaign);
+            document.getElementById('registration-btn').href = campaignConfig.registrationUrl;
             hideAll();
             document.getElementById('ended').classList.remove('hidden');
+        }
+
+        function showUnsupportedCampaign() {
+            hideAll();
+            document.getElementById('unsupported-campaign').classList.remove('hidden');
         }
 
         function hideAll() {
             const ids = ['loading', 'scenario-in-line', 'scenario-external',
                          'liff-logging-in', 'webhook-pending', 'failed',
-                         'redirecting', 'ended'];
+                         'redirecting', 'ended', 'unsupported-campaign'];
             ids.forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.classList.add('hidden');
@@ -342,6 +375,7 @@
                 if (params.firstName) cleanParams.set('first_name', params.firstName);
                 if (params.email) cleanParams.set('email', params.email);
                 if (params.phone) cleanParams.set('phone_number', params.phone);
+                if (params.campaign) cleanParams.set('campaign', params.campaign);
 
                 // 用 hash 當作「剛從 LINE login 跳回來」的標記
                 // hash 跟著 URL 一起 redirect,跨瀏覽器(IG → Safari)也保留
@@ -371,7 +405,8 @@
                         r: urlParams.get('r') || '',
                         first_name: urlParams.get('first_name') || '',
                         email: urlParams.get('email') || '',
-                        phone_number: urlParams.get('phone_number') || ''
+                        phone_number: urlParams.get('phone_number') || '',
+                        campaign: urlParams.get('campaign') || ''
                     }));
                 }
 
@@ -387,6 +422,10 @@
 
                 // ── 講座時段判斷 ──
                 const earlyParams = getParams();
+                if (!getCampaignConfig(earlyParams.campaign)) {
+                    showUnsupportedCampaign();
+                    return;
+                }
                 const timeStatus = checkWebinarTime(earlyParams.t);
 
                 if (timeStatus === 'during') {
@@ -395,7 +434,7 @@
                 }
 
                 if (timeStatus === 'ended') {
-                    showEnded();
+                    showEnded(earlyParams);
                     return;
                 }
 
@@ -403,6 +442,11 @@
                 await liff.init({ liffId: MyLiffId });
 
                 const params = getParams();
+                const campaignConfig = getCampaignConfig(params.campaign);
+                if (!campaignConfig) {
+                    showUnsupportedCampaign();
+                    return;
+                }
                 const isInLineApp = liff.isInClient();
 
                 // ╔══════════ 情境 B:在 LINE App 內報名 ══════════╗
@@ -423,9 +467,9 @@
                             first_name: params.firstName,
                             r: params.r
                         };
-                        const storageKey = `webhook_sent_${params.r || profile.userId}`;
+                        const storageKey = `webhook_sent_${params.campaign}_${params.r || profile.userId}`;
 
-                        triggerWebhook(payload, storageKey);
+                        triggerWebhook(campaignConfig.makeWebhookUrl, payload, storageKey);
 
                         document.getElementById('name-in-line').textContent = name;
                         hideAll();
@@ -458,12 +502,12 @@
                             first_name: params.firstName,
                             r: params.r
                         };
-                        const storageKey = `webhook_sent_${params.r || profile.userId}`;
+                        const storageKey = `webhook_sent_${params.campaign}_${params.r || profile.userId}`;
 
                         hideAll();
                         document.getElementById('webhook-pending').classList.remove('hidden');
 
-                        triggerWebhook(payload, storageKey);
+                        triggerWebhook(campaignConfig.makeWebhookUrl, payload, storageKey);
 
                         setTimeout(() => {
                             window.location.href = AddFriendUrl;
@@ -482,7 +526,11 @@
             } catch (err) {
                 console.error('Main flow error:', err);
                 const params = getParams();
-                showFailed(params.firstName || '同學', buildWebinarUrl(params));
+                if (getCampaignConfig(params.campaign)) {
+                    showFailed(params.firstName || '同學', buildWebinarUrl(params));
+                } else {
+                    showUnsupportedCampaign();
+                }
             }
         }
 
