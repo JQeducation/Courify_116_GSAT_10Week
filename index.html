@@ -74,7 +74,7 @@
     <!-- 載入中 -->
     <div id="loading" class="container">
         <div class="loader"></div>
-        <p style="font-size: 18px; font-weight: bold; margin-top: 15px;">正在為您確認報名資料...</p>
+        <p style="font-size: 18px; font-weight: bold; margin-top: 15px;">確認報名資料中，請稍候</p>
         <p style="color: #ff4b4b; font-weight: bold; margin-top: 10px; line-height: 1.5;">
             溫馨提醒：請勿關閉本網頁！<br>💡待會請點擊下方「使用LINE應用程式登入」
         </p>
@@ -99,10 +99,8 @@
 
         <!-- 上區域:email warning box -->
         <div class="email-box">
-            <div class="email-box-icon">📬</div>
             <div class="email-box-content">
-                <p class="email-box-title">請至信箱收取報名通知</p>
-                <p class="email-box-desc">您好 <b id="name-external"></b>，講座連結已寄到您報名時填寫的 Email，請到信箱確認收件。</p>
+                <p class="email-box-title">直播連結已寄至信箱</p>
             </div>
         </div>
 
@@ -110,7 +108,7 @@
         <button id="add-friend-btn" class="btn btn-primary">
             加入 LINE 領取直播連結 →
         </button>
-        <p class="trust-note">🔒 已有上千位同學透過 LINE 收到專屬連結，並準時上線</p>
+        <p class="trust-note">💡 加 LINE 後，講座開始時會提醒，推薦加入！</p>
 
         <div class="section-spacer"></div>
 
@@ -132,7 +130,7 @@
     <div id="webhook-pending" class="container hidden">
         <div class="loader"></div>
         <h1 style="font-size: 20px; margin-top: 15px;">處理中...</h1>
-        <p>即將跳轉至 LINE 加好友頁<br>加入後將收到專屬講座連結</p>
+        <p>連接 LINE 中，請稍後<br>加入後，會收到直播連結，並於講座開始時提醒</p>
         <p style="font-size: 13px; color: #06c755; font-weight: bold; margin-top: 10px;">
             ✅ 您已成功報名講座
         </p>
@@ -359,7 +357,6 @@
 
         // ── 顯示外部瀏覽器情境 A:兩按鈕畫面 ──
         function showExternalScenario(name, params) {
-            document.getElementById('name-external').textContent = name;
             hideAll();
             document.getElementById('scenario-external').classList.remove('hidden');
 
