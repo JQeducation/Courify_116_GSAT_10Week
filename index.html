@@ -132,10 +132,30 @@
     <div id="webhook-pending" class="container hidden">
         <div class="loader"></div>
         <h1 style="font-size: 20px; margin-top: 15px;">處理中...</h1>
-        <p>即將跳轉至 LINE 加好友頁<br>加入後將收到專屬講座連結</p>
+        <p>正在傳送預約成功通知<br>請稍候，不要關閉此畫面</p>
         <p style="font-size: 13px; color: #06c755; font-weight: bold; margin-top: 10px;">
             ✅ 您已成功報名講座
         </p>
+    </div>
+
+    <!-- 尚未完成加入好友 -->
+    <div id="friendship-required" class="container hidden">
+        <div class="big-icon">💬</div>
+        <h1>尚未完成加入好友</h1>
+        <p>請完成加入或解除封鎖 LINE 官方帳號，才能接收直播連結與講座提醒。</p>
+        <button id="friendship-retry-btn" class="btn btn-primary">
+            重新加入 LINE 好友
+        </button>
+    </div>
+
+    <!-- 預約通知傳送失敗 -->
+    <div id="delivery-failed" class="container hidden">
+        <div class="big-icon">⚠️</div>
+        <h1>通知尚未送出</h1>
+        <p>報名資料已保留，請重新傳送一次預約通知。</p>
+        <button id="delivery-retry-btn" class="btn btn-primary">
+            重新傳送預約通知
+        </button>
     </div>
 
     <!-- LIFF 失敗 fallback -->
@@ -194,8 +214,6 @@
                 registrationUrl: 'https://webinar.archiestudio.co/webinar/registration/6aa3d1acde9d19c677d6ab19'
             })
         });
-        const AddFriendUrl = 'https://line.me/R/ti/p/%40704rcmqj';
-
         // ── 講座時間設定 ──
         const WebinarDurationMinutes = 68;
         const EarlyEnterMinutes = 3;
@@ -266,6 +284,17 @@
             return Campaigns[campaign] || null;
         }
 
+        function buildLiffUrl(params) {
+            const p = new URLSearchParams();
+            if (params.t) p.set('t', params.t);
+            if (params.r) p.set('r', params.r);
+            if (params.firstName) p.set('first_name', params.firstName);
+            if (params.email) p.set('email', params.email);
+            if (params.phone) p.set('phone_number', params.phone);
+            if (params.campaign) p.set('campaign', params.campaign);
+            return `https://liff.line.me/${MyLiffId}?${p.toString()}`;
+        }
+
         function buildWebinarUrl(params) {
             const campaignConfig = getCampaignConfig(params.campaign);
             if (!campaignConfig) return '#';
@@ -320,6 +349,72 @@
             }
         }
 
+        function showFriendshipRequired(retryAction) {
+            hideAll();
+            document.getElementById('friendship-required').classList.remove('hidden');
+            document.getElementById('friendship-retry-btn').onclick = retryAction;
+        }
+
+        function showDeliveryFailed(retryAction) {
+            hideAll();
+            document.getElementById('delivery-failed').classList.remove('hidden');
+            document.getElementById('delivery-retry-btn').onclick = retryAction;
+        }
+
+        async function confirmFriendshipAndSend(params, campaignConfig, profile) {
+            const retryAction = () => confirmFriendshipAndSend(params, campaignConfig, profile);
+
+            try {
+                if (!params.email || !profile.userId) {
+                    showDeliveryFailed(retryAction);
+                    return;
+                }
+
+                let friendship = await liff.getFriendship();
+
+                if (!friendship.friendFlag) {
+                    await liff.requestFriendship();
+                    friendship = await liff.getFriendship();
+                }
+
+                if (!friendship.friendFlag) {
+                    showFriendshipRequired(retryAction);
+                    return;
+                }
+
+                const payload = {
+                    line_id: profile.userId,
+                    display_name: profile.displayName,
+                    email: params.email,
+                    first_name: params.firstName,
+                    r: params.r
+                };
+                const storageKey = `webhook_sent_${params.campaign}_${params.r || profile.userId}`;
+
+                hideAll();
+                document.getElementById('webhook-pending').classList.remove('hidden');
+
+                const sent = await triggerWebhook(
+                    campaignConfig.makeWebhookUrl,
+                    payload,
+                    storageKey
+                );
+
+                if (!sent) {
+                    showDeliveryFailed(retryAction);
+                    return;
+                }
+
+                document.getElementById('name-in-line').textContent =
+                    params.firstName || profile.displayName;
+                hideAll();
+                document.getElementById('scenario-in-line').classList.remove('hidden');
+            } catch (error) {
+                console.error('Friendship flow error:', error);
+                showDeliveryFailed(retryAction);
+            }
+        }
+
         function showFailed(name, webinarUrl) {
             document.getElementById('name-failed').textContent = name;
             document.getElementById('webinar-btn-failed').href = webinarUrl;
@@ -349,8 +444,9 @@
 
         function hideAll() {
             const ids = ['loading', 'scenario-in-line', 'scenario-external',
-                         'liff-logging-in', 'webhook-pending', 'failed',
-                         'redirecting', 'ended', 'unsupported-campaign'];
+                         'liff-logging-in', 'webhook-pending', 'friendship-required',
+                         'delivery-failed', 'failed', 'redirecting', 'ended',
+                         'unsupported-campaign'];
             ids.forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.classList.add('hidden');
@@ -363,33 +459,13 @@
             hideAll();
             document.getElementById('scenario-external').classList.remove('hidden');
 
-            // 主按鈕:加入 LINE → LIFF login → 拿 User ID → 跳加好友
-            document.getElementById('add-friend-btn').addEventListener('click', function(e) {
+            // 主按鈕：攜帶活動與報名參數，直接開啟 LINE LIFF
+            document.getElementById('add-friend-btn').onclick = function(e) {
                 e.preventDefault();
-
                 hideAll();
                 document.getElementById('liff-logging-in').classList.remove('hidden');
-
-                const cleanParams = new URLSearchParams();
-                if (params.t) cleanParams.set('t', params.t);
-                if (params.r) cleanParams.set('r', params.r);
-                if (params.firstName) cleanParams.set('first_name', params.firstName);
-                if (params.email) cleanParams.set('email', params.email);
-                if (params.phone) cleanParams.set('phone_number', params.phone);
-                if (params.campaign) cleanParams.set('campaign', params.campaign);
-                cleanParams.set('liff_return', '1');
-
-                // 用 hash 當作「剛從 LINE login 跳回來」的標記
-                // hash 跟著 URL 一起 redirect,跨瀏覽器(IG → Safari)也保留
-                // 比 sessionStorage 更穩定
-                const cleanUrl = window.location.origin + window.location.pathname
-                              + '?' + cleanParams.toString()
-                              + '#liff_done';
-
-                setTimeout(() => {
-                    liff.login({ redirectUri: cleanUrl });
-                }, 600);
-            });
+                window.location.href = buildLiffUrl(params);
+            };
 
             // 副按鈕:直接導向 thankyou page
             document.getElementById('direct-thankyou-btn').addEventListener('click', function(e) {
@@ -448,7 +524,7 @@
 
                 const isInLineApp = liff.isInClient();
 
-                // ╔══════════ 情境 B:在 LINE App 內報名 ══════════╗
+                // ╔══════════ 情境 B：在 LINE App／LIFF 內處理 ══════════╗
                 if (isInLineApp) {
                     if (!liff.isLoggedIn()) {
                         liff.login();
@@ -457,67 +533,15 @@
 
                     try {
                         const profile = await liff.getProfile();
-                        const name = params.firstName || profile.displayName;
-
-                        const payload = {
-                            line_id: profile.userId,
-                            display_name: profile.displayName,
-                            email: params.email,
-                            first_name: params.firstName,
-                            r: params.r
-                        };
-                        const storageKey = `webhook_sent_${params.campaign}_${params.r || profile.userId}`;
-
-                        triggerWebhook(campaignConfig.makeWebhookUrl, payload, storageKey);
-
-                        document.getElementById('name-in-line').textContent = name;
-                        hideAll();
-                        document.getElementById('scenario-in-line').classList.remove('hidden');
-                    } catch (e) {
-                        console.error('In-LINE flow error:', e);
-                        showFailed(params.firstName || '同學', buildWebinarUrl(params));
+                        await confirmFriendshipAndSend(params, campaignConfig, profile);
+                    } catch (error) {
+                        console.error('In-LINE flow error:', error);
+                        showDeliveryFailed(() => main());
                     }
                     return;
                 }
 
                 // ╔══════════ 情境 A:外部瀏覽器(包含 IG/FB/Safari/Chrome) ══════════╗
-
-                // redirectUri 的 liff_return 會隨 liff.state 回傳；hash 保留供舊連結相容。
-                const justLoggedIn = params.liffReturn === '1' || window.location.hash === '#liff_done';
-
-                if (liff.isLoggedIn() && justLoggedIn) {
-                    // 真的剛從 LINE login 回來,觸發 Step2 後跳加好友
-                    // 清掉 hash 避免重新整理時誤判
-                    history.replaceState(null, '',
-                        window.location.pathname + window.location.search);
-
-                    try {
-                        const profile = await liff.getProfile();
-                        const payload = {
-                            line_id: profile.userId,
-                            display_name: profile.displayName,
-                            email: params.email,
-                            first_name: params.firstName,
-                            r: params.r
-                        };
-                        const storageKey = `webhook_sent_${params.campaign}_${params.r || profile.userId}`;
-
-                        hideAll();
-                        document.getElementById('webhook-pending').classList.remove('hidden');
-
-                        triggerWebhook(campaignConfig.makeWebhookUrl, payload, storageKey);
-
-                        setTimeout(() => {
-                            window.location.href = AddFriendUrl;
-                        }, 1200);
-                    } catch (e) {
-                        console.error('Post-login flow error:', e);
-                        showFailed(params.firstName || '同學', buildWebinarUrl(params));
-                    }
-                    return;
-                }
-
-                // 其他情況(未登入 / 已登入但非剛 login):顯示兩按鈕畫面
                 const name = params.firstName || '同學';
                 showExternalScenario(name, params);
 
